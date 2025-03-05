@@ -1,0 +1,115 @@
+# Script developed by Inez Derkx
+# Script aims to examine list of spouses and their relatedness alongside relatedness between all those 22 individuals. 
+
+##################################### IMPORT LIBRARIES #####################################
+
+library(ggplot2)
+library(reshape2)
+library(readr)
+library(dplyr)
+
+##################################### SET UP THE ENVIRONMENT #####################################
+
+# Import data
+raute_census_combined <- readxl::read_xlsx("/Users/inezd/Hunter Gatherer Resilience/Input/raute_census_january_2022.xlsx",
+                                           sheet = "Census combined")
+raute_only_IBD <- read_table("/Users/inezd/PHD/Genetic_Data/IBD_analyses/all.raute.IBD.Merged", 
+                             col_names = c("sample_1", "haplo_1", "sample_2", "haplo_2", "chr", "start", "end","LOD", "length_cM"))
+raute_genealogies_complete <- readxl::read_xlsx("/Users/inezd/Hunter Gatherer Resilience/Input/raute_census_january_2022.xlsx",
+                                                sheet = "genealogies - correct")
+raute_20_kin <- read.delim("~/PHD/Genetic_Data/IBIS/raute_maf_20.coef", 
+                           col.names = c("sample_1", "sample_2", "kinship_20", "IBD2_20", "segment_count", "degree_of_relatedness"))
+raute_7_kin <- read.delim("~/PHD/Genetic_Data/IBIS/raute_maf_7.coef",
+                          col.names = c("sample_1", "sample_2", "kinship_7", "IBD2_7", "segment_count", "degree_of_relatedness"))
+
+
+# Add colour list to my colour palette
+own_colours = list(
+  spring = c("#fd7f6f", "#7eb0d5", "#b2e061", "#bd7ebe", "#ffb55a", "#ffee65", "#beb9db", "#fdcce5", "#8bd3c7", 
+             "#5aa3ff", "#f08080", "#b6fad3"),
+  retro = c("#f46a9b", "#ef9b20", "#edbf33", "#ede15b", "#bdcf32", "#87bc45", "#27aeef", "#b33dc6"),
+  dutch= c("#e60049", "#0bb4ff", "#50e991", "#e6d800", "#9b19f5", "#ffa300", "#dc0ab4", "#b3d4ff", "#00bfa0"),
+  rivers = c("#b30000", "#7c1158", "#4421af", "#1a53ff", "#0d88e6", "#00b7c7", "#5ad45a", "#8be04e", "#ebdc78"),
+  pastels = c("#54bebe", "#76c8c8", "#98d1d1", "#badbdb", "#dedad2", "#e4bcad", "#df979e", "#d7658b", "#c80064"),
+  colors_paper = c("#A3CBFA", "#78A2D6", "#5080B0", "#034984", "#4D4D4D", "#B0B0B0",
+                   "#F4E98C", "#F0B065", "#ED9434", "#C8751A", "#5B290C", "#000000",
+                   "#F5DCE8", "#E099AA", "#CC6677", "#B0475D", "#764786", "#CD86E6",
+                   "#EF048B", "#A0017C"),
+  colourblind_friendly = c("#ffa635", "#b77fff", "#ff9dcc", "#839ffe"))
+
+##################################### TRANSFORM DATA #####################################
+
+## STEP 1: GET RELATEDNESS FOR SPOUSES
+
+# Create a file with the relevant ids for spouses
+spouses <- raute_genealogies_complete %>%
+  filter(!is.na(partner_id), partner_alive == 'yes', alive == 'yes') %>%
+  select(id_2014_1 = id_2014, id = old_id, name = name, partner_name = partner_name, old_id = partner_id) %>%
+  left_join(raute_genealogies_complete %>% select(old_id = old_id, id_2014_2 = id_2014), by = "old_id") %>%
+  select(name = name, partner_name = partner_name, id_2014_1 = id_2014_1, id_2014_2 = id_2014_2) %>%
+  arrange(name) %>%
+  mutate(
+    pair = paste(pmin(id_2014_1, id_2014_2), pmax(id_2014_1, id_2014_2), sep = '-'),
+    id1 = pmin(id_2014_1, id_2014_2),
+    id2 = pmax(id_2014_1, id_2014_2)
+  ) %>%
+  distinct(pair, .keep_all = TRUE) %>%
+  select(id1, id2) %>%
+  arrange(id1, id2) %>%
+  mutate_at(c('id1', 'id2'), as.numeric) %>%
+  left_join(id_gen %>% select(ind1 = ind, id1 = id_2014), by = "id1") %>%
+  left_join(id_gen %>% select(ind2 = ind, id2 = id_2014), by = "id2") %>%
+  na.omit() %>%
+  left_join(raute_fam %>% select(ind1 = V1, sample_1 = new_IID), by = 'ind1') %>% # if you get a warning: make sure to ungroup:
+  left_join(raute_fam %>% select(ind2 = V1, sample_2 = new_IID), by = 'ind2') %>% # raute_fam <- raute_fam %>% ungroup(V3)
+  select(3,4,1,2,5,6) %>%
+  mutate(pair = paste(pmin(sample_1, sample_2), pmax(sample_1, sample_2), sep = '-'))
+
+# Add IBD sharing
+raute_IBD_summary <- raute_only_IBD %>%
+  mutate(pair = paste(pmin(sample_1, sample_2), pmax(sample_1, sample_2), sep = '-')) %>%
+  group_by(pair) %>%
+  summarise(
+    n = n(),
+    sum = sum(length_cM),
+    mean = mean(length_cM),
+    .groups = "drop")
+
+# Summary stats
+raute_IBD_summary %>% summarise(
+  mean_sum = round(mean(sum),3), # Mean sum: 2207.67
+  mean_mean = round(mean(mean),3), # Mean mean: 14.91
+  mean_n = round(mean(n),3)) # Mean number: 169.17
+
+# Merge this with the spousal info
+spouses <- spouses %>% 
+  inner_join(raute_IBD_summary, by = "pair")
+
+# Summary stats
+spouses %>% summarise(
+  mean_sum = round(mean(sum),3), # Mean sum: 2078.2
+  mean_mean = round(mean(mean),3), # Mean mean: 11.5
+  mean_n = round(mean(n),3)) # Mean number: 182.64
+
+# Add kinship coefficient
+raute_7_kin <- raute_7_kin %>%
+  mutate(pair = paste(pmin(sample_1, sample_2), pmax(sample_1, sample_2), sep = '-'))
+spouses <- spouses %>% 
+  inner_join(raute_7_kin %>% select(pair = pair, kinship = kinship_7), by = "pair") %>%
+  mutate(type = 'spouse')
+mean(spouses$kinship) # Mean is 0.124274
+
+# Create function for expected inbreeding coefficient of offspring
+expected_inbreeding_offspring <- function(father, mother, kinship) {
+  return(0.5 * (father + mother) + 0.5 * kinship)
+}
+
+# Finally, add to dataframe
+spouses <- spouses %>%
+  inner_join(roh_compare %>% select(sample_1 = IID, FROH_1 = FROH), by = "sample_1") %>%# Only select columns 'IID' and 'FROH'
+  inner_join(roh_compare %>% select(sample_2 = IID, FROH_2 = FROH), by = "sample_2") %>%
+  mutate(inbreeding_coef = 0.5*(FROH_1 + FROH_2) + (0.5*kinship))
+mean(spouses$inbreeding_coef) # Mean is 0.292846
+
+# Save file
+write.csv(spouses, "/Users/inezd/PHD/Chapter_3/R_Files/spousal_information.csv")
