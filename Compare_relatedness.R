@@ -1,7 +1,6 @@
 # Script developed by Inez Derkx, summer 2024
 # Script aims to examine list of spouses and their relatedness alongside relatedness between all those 22 individuals. 
 
-
 ##################################### IMPORT LIBRARIES #####################################
 
 library(ggplot2)
@@ -11,299 +10,81 @@ library(dplyr)
 
 ##################################### IMPORT DATA #####################################
 
-raute_census_combined <- readxl::read_xlsx("/Users/inezd/Hunter Gatherer Resilience/Input/raute_census_january_2022.xlsx",
-                                           sheet = "Census combined")
-raute_only_IBD <- read_table("/Users/inezd/PHD/Genetic_Data/IBD_analyses/all.raute.IBD.Merged", 
-                             col_names = c("sample_1", "haplo_1", "sample_2", "haplo_2", "chr", "start", "end","LOD", "length_cM"))
-raute_genealogies_complete <- readxl::read_xlsx("/Users/inezd/Hunter Gatherer Resilience/Input/raute_census_january_2022.xlsx",
-                                                sheet = "genealogies - correct")
-raute_20_kin <- read.delim("~/PHD/Genetic_Data/IBIS/raute_maf_20.coef", 
-                           col.names = c("sample_1", "sample_2", "kinship_20", "IBD2_20", "segment_count", "degree_of_relatedness"))
-raute_7_kin <- read.delim("~/PHD/Genetic_Data/IBIS/raute_maf_7.coef",
-                          col.names = c("sample_1", "sample_2", "kinship_7", "IBD2_7", "segment_count", "degree_of_relatedness"))
+spouses <- read.csv("/Users/inezd/PHD/Chapter_3/R_Files/spousal_information.csv")
 
+##################################### TRANSFORM DATA #####################################
 
-# Add some new colours to the colour palette
-own_colours = list(
-  spring = c("#fd7f6f", "#7eb0d5", "#b2e061", "#bd7ebe", "#ffb55a", "#ffee65", "#beb9db", "#fdcce5", "#8bd3c7", 
-             "#5aa3ff", "#f08080", "#b6fad3"),
-  retro = c("#f46a9b", "#ef9b20", "#edbf33", "#ede15b", "#bdcf32", "#87bc45", "#27aeef", "#b33dc6"),
-  dutch= c("#e60049", "#0bb4ff", "#50e991", "#e6d800", "#9b19f5", "#ffa300", "#dc0ab4", "#b3d4ff", "#00bfa0"),
-  rivers = c("#b30000", "#7c1158", "#4421af", "#1a53ff", "#0d88e6", "#00b7c7", "#5ad45a", "#8be04e", "#ebdc78"),
-  pastels = c("#54bebe", "#76c8c8", "#98d1d1", "#badbdb", "#dedad2", "#e4bcad", "#df979e", "#d7658b", "#c80064"),
-  colors_paper = c("#A3CBFA", "#78A2D6", "#5080B0", "#034984", "#4D4D4D", "#B0B0B0",
-                   "#F4E98C", "#F0B065", "#ED9434", "#C8751A", "#5B290C", "#000000",
-                   "#F5DCE8", "#E099AA", "#CC6677", "#B0475D", "#764786", "#CD86E6",
-                   "#EF048B", "#A0017C"),
-  colourblind_friendly = c("#ffa635", "#b77fff", "#ff9dcc", "#839ffe"))
+# Create list of single individuals who are spouses
+spouse_ind <- spouses %>%
+  select(pair, sample_1, sample_2) %>%
+  pivot_longer(cols = c(sample_1, sample_2), values_to = "sample_1", names_to = "variable") %>%
+  distinct(sample_1)
 
+# Create pairwise list of combinations of individuals who are spouses
+spousal_relatedness <- expand_grid(sample_1 = spouse_ind$sample_1, sample_2 = spouse_ind$sample_1) %>%
+  mutate(id1 = pmin(sample_1, sample_2),
+         id2 = pmax(sample_1, sample_2),
+         pair = paste(pmin(id1, id2), pmax(id1, id2), sep = '-')) %>%
+  select(X1 = id1, X2 = id2, pair) %>%
+  distinct() %>%
+  left_join(raute_IBD_summary, by = 'pair') %>%
+  left_join(raute_7_kin %>% select(kinship = kinship_7, pair), by = 'pair') %>%
+  left_join(spouses %>% select(pair, type), by = 'pair') %>%
+  mutate(type = replace_na(type, "non-spouse")) %>%
+  na.omit() # 11 spouses, 220 non-spouses
 
-## SPOUSAL INFO
+# Check summary statistics (first alone, then for spouses vs. non-spouses)
+spousal_relatedness %>% 
+  summarise(
+    mean_sum = mean(sum), # 2184.90
+    mean_kin = mean(kinship)) # 0.14
+spousal_relatedness %>%   
+  group_by(type) %>% 
+  summarise(mean_IBD = mean(sum),
+                               n_IBD = mean(n),
+                               mean_kin = mean(kinship)) 
+observed_mean <- 0.124274 # Mean relatedness of true couples
 
-# Make list of spouses
-spouses <- raute_genealogies_complete[!is.na(raute_genealogies_complete$partner_id) & (raute_genealogies_complete$partner_alive == 'yes') & (raute_genealogies_complete$alive == 'yes'),c(1,2,3,14,15)]
-names(spouses)[c(1,2,5)] <- c("id_2014_1", 'id', 'old_id')
-spouses <- merge(spouses, raute_genealogies_complete[,1:2], by = 'old_id', all.x=T)
-names(spouses)[6] <- c("id_2014_2")
-spouses <- spouses[c(4,5,2,6)]
-spouses$pair <- paste(pmin(spouses$id_2014_1, spouses$id_2014_2), pmax(spouses$id_2014_2, spouses$id_2014_1), sep = '-')
-spouses$id1 <- pmin(spouses$id_2014_1, spouses$id_2014_2)
-spouses$id2 <- pmax(spouses$id_2014_1, spouses$id_2014_2)
-spouses <- spouses[!duplicated(spouses$pair),6:7]
-
-# Add oragene ids to spouses list
-names(id_gen)[1:2] <- c('ind1', 'id1')
-spouses <- merge(spouses, id_gen[,1:2], by = 'id1')
-names(id_gen)[1:2] <- c('ind2', 'id2')
-spouses <- merge(spouses, id_gen[,1:2], by = 'id2')
-names(id_gen)[1:2] <- c("ind", "id_2014") # we have 11 couples included with the analysis 
-
-# Merge the file with new ids >> make sure that you check the raute_fam file 
-# column 8 should be new_IID, you can re do the file in fam_files script. 
-names(raute_fam)[1] <- 'ind1'
-spouses <- merge(spouses, raute_fam[,c(1,8)], by = 'ind1', all.x=T)
-names(raute_fam)[1] <- 'ind2'
-spouses <- merge(spouses, raute_fam[,c(1,8)], by = 'ind2', all.x=T)
-names(raute_fam)[1] <- 'V1'
-names(spouses)[5:6] <- c("sample_1", "sample_2")
-spouses <- spouses[,c(2,1,4,3,5:6)]
-spouses$pair <- paste(pmin(spouses$sample_1, spouses$sample_2), pmax(spouses$sample_1, spouses$sample_2), sep = '-')
-
-
-## ADD IBD SHARING
-
-# Summarize per 2 individuals
-raute_only_IBD$pair <- paste(pmin(raute_only_IBD$sample_1, raute_only_IBD$sample_2), pmax(raute_only_IBD$sample_1, raute_only_IBD$sample_2), sep = '-')
-raute_IBD_summary <- raute_only_IBD %>% group_by(pair) %>% summarise(n = n(), 
-                                                                     sum = sum(length_cM), 
-                                                                     mean = mean(length_cM))
-
-# Summary stats
-mean(raute_IBD_summary$sum) # Mean sum: 2207.67
-mean(raute_IBD_summary$mean) # Mean mean: 14.91
-mean(raute_IBD_summary$n) # Mean number: 169.17
-
-
-# Merge this with the spousal info
-spouses <- merge(spouses, raute_IBD_summary, by = c("pair"), all.x=T)
-
-# Summary stats
-mean(spouses$sum) # Mean sum: 2078.2
-mean(spouses$mean) # Mean mean: 11.5
-mean(spouses$n) # Mean number: 182.64
-
-
-## ADD KINSHIP COEFFICIENTS 
-
-# Add kinship coefficient: 20 cM
-raute_20_kin$pair <- paste(pmin(raute_20_kin$sample_1, raute_20_kin$sample_2), pmax(raute_20_kin$sample_1, raute_20_kin$sample_2), sep = '-')
-spouses <- merge(spouses, raute_20_kin[,c(7,3)], by = c("pair"), all.x=T)
-
-# Add kinship coefficient: 7 cM
-raute_7_kin$pair <- paste(pmin(raute_7_kin$sample_1, raute_7_kin$sample_2), pmax(raute_7_kin$sample_1, raute_7_kin$sample_2), sep = '-')
-spouses <- merge(spouses, raute_7_kin[,c(7,3)], by = c("pair"), all.x=T)
-spouses$type <- 'spouse'
-
-# What are the means?
-mean(spouses$kinship_20) # 0.07
-mean(spouses$kinship_7) #0.12
-
-# We have to check how these different variables correlate:
-cor.test(spouses$sum, spouses$kinship_20) #0.0216, 0.68
-cor.test(spouses$sum, spouses$kinship_7) #0.0009, 0.85 > so there is most overlap between these two
-cor.test(spouses$n, spouses$kinship_20) #0.0264, -0.66
-cor.test(spouses$n, spouses$kinship_7) #0.0294, -0.65
-
-# Expected inbreeding offspring
-expected_inbreeding_offspring <- function(father, mother, kinship) {
-  return(0.5 * (father + mother) + 0.5 * kinship)
-}
-
-
-# What are the expected offspring inbreeding coefficients for these pairs?
-names(roh_compare)[3] <- 'sample_1'
-spouses <- merge(spouses, roh_compare[,c(3,6)], by = 'sample_1', all.x=T)
-names(roh_compare)[3] <- 'sample_2'
-spouses <- merge(spouses, roh_compare[,c(3,6)], by = 'sample_2', all.x=T)
-names(roh_compare)[3] <- 'IID'
-spouses$inbreeding_coef <- 0.5*(spouses$FROH.x + spouses$FROH.y) + (0.5*spouses$kinship_7)
-mean(spouses$inbreeding_coef)
-
-
-
-## EXAMINE AVERAGE AMONGST SPOUSES
-
-
-
-# Now we want to examine: what is average the relatedness amongst these individuals?
-
-# Create list of individuals who are spouses
-spouse_ind <- reshape2::melt(spouses[,1:3], id.vars = 'pair')
-spouse_ind <- data.frame(sample_1 = unique(spouse_ind$value))
-spousal_relatedness <- data.frame(t(combn(spouse_ind$sample_1, 2)))
-spousal_relatedness$pair <- paste(pmin(spousal_relatedness$X1, spousal_relatedness$X2), 
-                                  pmax(spousal_relatedness$X1, spousal_relatedness$X2), 
-                                  sep = '-')
-
-# Add IBD list and kinship
-spousal_relatedness <- merge(spousal_relatedness, raute_IBD_summary, by = 'pair', all.x=T)
-spousal_relatedness <- merge(spousal_relatedness, raute_7_kin[,c(7,3)], by = c("pair"), all.x=T)
-spousal_relatedness <- merge(spousal_relatedness, raute_20_kin[,c(7,3)], by = c("pair"), all.x=T)
-spousal_relatedness <- merge(spousal_relatedness, spouses[,c(3,13)], by = 'pair', all.x=T)
-spousal_relatedness$type[is.na(spousal_relatedness$type)] <- 'non-spouse'
-table(spousal_relatedness$type) # 11 spouses, 220 non-spouses
-
-# Summary stats
-mean(spousal_relatedness$sum) # 2184.90
-mean(spousal_relatedness$kinship_20) # 0.09
-mean(spousal_relatedness$kinship_7)  # 0.14
-
-observed_mean <- 0.124274  # Replace with your observed mean
-t.test(spousal_relatedness$kinship_7, spouses$kinship_7) #0.006521
-
-#Now: divided by spouse versus non-spouse
-spousal_relatedness %>% group_by(type) %>% summarise(mean_IBD = mean(sum),
-                                                     n_IBD = mean(n),
-                                                 mean_7cM = mean(kinship_7), 
-                                                 mean_20cM = mean(kinship_20)) 
-# Spousal individuals have lower shared IBD and kinship coefficients 
-
-# Actually check
-anova_spouses <- aov(sum ~ type, data = spousal_relatedness)
-summary(anova_spouses)
-anova_spouses <- aov(kinship_7 ~ type, data = spousal_relatedness)
-summary(anova_spouses)
-
-
-# First examine just the distribution of all three values
-png("/Users/inezd/PHD/Chapter_3/Plots/spousal_IBD_avg.png", height = 800, width = 800)
-spousal_IBD <- ggplot(spousal_relatedness, aes(x = sum)) +
+# Visualize observed true mean versus distribution between spouses
+png("/Users/inezd/PHD/Chapter_3/Plots/spousal_kin_avg.png", height = 800, width = 800)
+spousal_kin <- ggplot(spousal_relatedness, aes(x = kinship)) +
   geom_histogram(color = "#ebefff", fill="#839ffe", alpha = 0.6, bins = 50) +
-  geom_segment(aes(x = 2207, xend = 2207, y = 0, yend = Inf), color = "#ffa635", linetype = 'dashed', linewidth = 1) + # orange // whole population 
-  geom_segment(aes(x = 2078, xend = 2078, y = 0, yend = Inf), color = "#b77fff", linetype = 'dashed', linewidth = 1) + # amongst spouses // purple
-  geom_segment(aes(x = mean(sum), xend = mean(sum), y = 0, yend = Inf), color =  "#ff9dcc", linetype = 'dashed', linewidth = 1) + #of this sample // pink
-  theme_classic() +
-  theme(text = element_text(size = 30)) +
-  labs(title = "", x = 'Sum of IBD shared segments', y = 'frequency')
-spousal_IBD
-dev.off()
-png("/Users/inezd/PHD/Chapter_3/Plots/spousal_kin7_avg.png", height = 800, width = 800)
-spousal_kin7 <- ggplot(spousal_relatedness, aes(x = kinship_7)) +
-  geom_histogram(color = "#ebefff", fill="#839ffe", alpha = 0.6, bins = 50) +
-  geom_segment(aes(x = 0.14, xend = 0.14, y = 0, yend = Inf), color = "#ffa635", linetype = 'dashed', linewidth = 1) + # orange // whole population 
+  geom_density(alpha=.2, fill="#FF6666") +
   geom_segment(aes(x = 0.12, xend = 0.12, y = 0, yend = Inf), color = "#b77fff", linetype = 'dashed', linewidth = 1) + # amongst spouses // purple
-  geom_segment(aes(x = mean(kinship_7), xend = mean(kinship_7), y = 0, yend = Inf), color =  "#ff9dcc", linetype = 'dashed', linewidth = 1) + #of this sample // pink
   theme_classic() +
   theme(text = element_text(size = 30)) +
   scale_x_continuous(limits = c(0.05, 0.30), breaks = seq(0.05, 0.30, by = 0.05)) +
-  labs(title = "", x = 'Kinship coefficient (7 cM)', y = 'frequency')
-spousal_kin7
-dev.off()
-png("/Users/inezd/PHD/Chapter_3/Plots/spousal_kin20_avg.png", height = 800, width = 800)
-spousal_kin20 <- ggplot(spousal_relatedness, aes(x = kinship_20)) +
-  geom_histogram(color = "#ebefff", fill="#839ffe", alpha = 0.6, bins = 50) +
-  geom_segment(aes(x = 0.09, xend = 0.09, y = 0, yend = Inf), color = "#ffa635", linetype = 'dashed', linewidth = 1) + # orange // whole population 
-  geom_segment(aes(x = 0.07, xend = 0.07, y = 0, yend = Inf), color = "#b77fff", linetype = 'dashed', linewidth = 1) + # amongst spouses // purple
-  geom_segment(aes(x = mean(kinship_20), xend = mean(kinship_20), y = 0, yend = Inf), color =  "#ff9dcc", linetype = 'dashed', linewidth = 1) + #of this sample // pink
-  theme_classic() +
-  theme(text = element_text(size = 30)) +
-  scale_x_continuous(limits = c(0, 0.30), breaks = seq(0, 0.30, by = 0.05)) +
-  labs(title = "", x = 'Kinship coefficient (20 cM)', y = 'frequency')
-spousal_kin20
+  labs(title = "", x = 'Kinship coefficient', y = 'Frequency')
+spousal_kin
 dev.off()
 
-
-
-## DOES THIS MAKE ANY SENSE? > NOT REALLY
-
-
-
-## whole sample
-
-# Simulate sampling 1000 couples and calculate their IBD
+# Let's go a bit deeper: simulate relatedness within this sample
 set.seed(123) # For reproducibility
-simulated_means_IBD <- replicate(1000, {
-  sampled_pair <- spousal_relatedness[sample(nrow(spousal_relatedness), 11), ]
-  return(mean(sampled_pair[["sum"]]))
+simulated_relatedness <- replicate(10000, { # Perform 10000 permutations
+  sampled_pair <- spousal_relatedness[sample(nrow(spousal_relatedness), 11), ] # Sample 11 individuals (same number as there are spousal pairs)
+  return(mean(sampled_pair[["kinship"]])) # Return the mean relatedness between them
 })
 
-# Simulate sampling 1000 couples and calculate their relatedness
-set.seed(123) # For reproducibility
-simulated_means_7cM <- replicate(1000, {
-  sampled_pair <- spousal_relatedness[sample(nrow(spousal_relatedness), 11), ]
-  return(mean(sampled_pair[["kinship_7"]]))
-})
-
-# Simulate sampling 1000 couples and calculate their relatedness
-set.seed(123) # For reproducibility
-simulated_means_20cM <- replicate(1000, {
-  sampled_pair <- spousal_relatedness[sample(nrow(spousal_relatedness), 11), ]
-  return(mean(sampled_pair[["kinship_20"]]))
-})
-
-#Compare these to the actual values of the 
-
+# Obtain the mean and confidence intervals
+simulated_relatedness <- data.frame(sim = simulated_relatedness)
+mean_sim <- mean(simulated_relatedness$sim) #mean 
+ci_sim <- quantile(simulated_relatedness$sim, c(0.025, 0.975)) #CI
 
 # Plot distribution of simulated relatedness
-simulated_relatednessIBD <- data.frame(sim = simulated_means_IBD)
-mean(simulated_relatednessIBD$sim) #2183.916
-mean(spouses$sum) #2078.23
-png("/Users/inezd/PHD/Chapter_3/Plots/simulated_relatednessIBD.png", height = 800, width = 800)
-ggplot(simulated_relatednessIBD, aes(x=sim)) +
-  geom_histogram(color = "#ebefff", fill="#839ffe", alpha = 0.6, bins = 50) +
-  geom_segment(aes(x = mean(spouses$sum), 
-               xend = mean(spouses$sum), 
-               y = 0, 
-               yend = Inf), 
-               color = "#b77fff", 
-               linetype = 'dashed', 
-               linewidth = 1) +  
-  #ggtitle("Simulated kinship whole sample") +
-  labs(x = "IBD sum length", y = 'Frequency') +
-  theme_classic() +
-  theme(text = element_text(size = 30))
-dev.off()
-
-# Plot distribution of simulated relatedness
-simulated_relatedness7 <- data.frame(sim = simulated_means_7cM)
-mean(simulated_relatedness7$sim) #0.1377262
-mean(spouses$kinship_7) #0.124274
-png("/Users/inezd/PHD/Chapter_3/Plots/simulated_relatedness7.png", height = 800, width = 800)
-ggplot(simulated_relatedness7, aes(x=sim)) +
-  geom_histogram(color = "#ebefff", fill="#839ffe", alpha = 0.6, bins = 50) +
-  geom_segment(aes(x = mean(spouses$kinship_7), 
-                   xend = mean(spouses$kinship_7), 
-                   y = 0, 
-                   yend = Inf), 
-               color = "#b77fff", 
-               linetype = 'dashed', 
-               linewidth = 1) + 
-  #ggtitle("Simulated kinship whole sample") +
-  labs(x = "Relatedness (7cM)", y = 'Frequency') +
+png("/Users/inezd/PHD/Chapter_3/Plots/simulated_relatedness.png", height = 800, width = 800)
+ggplot(simulated_relatedness, aes(x = sim)) +
+  geom_histogram(color = "#ebefff", fill = "#839ffe", alpha = 0.6, bins = 50) +
+  geom_vline(aes(xintercept = mean(spouses$kinship)), 
+             color = "#b77fff", linetype = "dashed", linewidth = 1) + 
+  geom_vline(aes(xintercept = ci_sim[1]), color = "red", linetype = "dotted") +
+  geom_vline(aes(xintercept = ci_sim[2]), color = "red", linetype = "dotted") +
+  labs(x = "Relatedness", y = "Frequency") +
   theme_classic() +
   theme(text = element_text(size = 20))
 dev.off()
 
-# Plot distribution of simulated relatedness
-simulated_relatedness20 <- data.frame(sim = simulated_means_20cM)
-mean(simulated_relatedness20$sim) #0.08921228
-mean(spouses$kinship_20) #0.07237264
-png("/Users/inezd/PHD/Chapter_3/Plots/simulated_relatedness20.png", height = 800, width = 800)
-ggplot(simulated_relatedness20, aes(x=sim)) +
-  geom_histogram(color = "#ebefff", fill="#839ffe", alpha = 0.6, bins = 50) +
-  geom_segment(aes(x = mean(spouses$kinship_20), 
-                   xend = mean(spouses$kinship_20), 
-                   y = 0, 
-                   yend = Inf), 
-               color = "#b77fff", 
-               linetype = 'dashed', 
-               linewidth = 1) + 
-  #ggtitle("Simulated kinship whole sample") +
-  labs(x = "Relatedness (20cM)", y = 'Frequency') +
-  theme_classic() +
-  theme(text = element_text(size = 30))
-dev.off()
 
+---------
 
 
 ## PROBABILITY OF FINDING SPOUSAL VALUES 
