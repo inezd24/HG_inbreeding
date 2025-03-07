@@ -113,3 +113,5 @@ mean(spouses$inbreeding_coef) # Mean is 0.292846
 
 # Save file
 write.csv(spouses, "/Users/inezd/PHD/Chapter_3/R_Files/spousal_information.csv")
+write.csv(raute_IBD_summary, "/Users/inezd/PHD/Chapter_3/R_Files/raute_IBD_summary.csv")
+
