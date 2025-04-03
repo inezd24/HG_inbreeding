@@ -103,6 +103,7 @@ agta_eligible <- as.data.frame(t(combn(agta_data$ID, 2))) %>% # make combination
   select(pair, kinship) %>%
   distinct() %>%
   filter(kinship < 0.1768) #2422, mean is 0.02020264
+write.csv(agta_eligible, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/agta_eligible.csv")
 
 
 ### For the BaYaka
@@ -119,7 +120,7 @@ bayaka_eligible <- as.data.frame(t(combn(bayaka_data$short_ID[!bayaka_data$short
   select(pair, kinship) %>%
   distinct() %>%
   filter(kinship < 0.1768) #49, mean is 0.02500855
-
+write.csv(bayaka_eligible, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/bayaka_eligible.csv")
 
 
 ##################################### TOTAL POPULATION #####################################
@@ -130,6 +131,7 @@ agta_total <- agta_coef %>% # relatedness file
   mutate(type = ifelse(is.na(type), "non-spouse", type)) %>% # add the label 'non-spouse' to those who are not spouses
   select(pair, kinship, type) %>%
   distinct() # mean = 0.02539593, n = 9755
+write.csv(agta_total, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/bayaka_total.csv")
 
 ### For the BaYaka
 bayaka_total <- bayaka_coef %>% # relatedness file
@@ -137,6 +139,7 @@ bayaka_total <- bayaka_coef %>% # relatedness file
   mutate(type = ifelse(is.na(type), "non-spouse", type)) %>% # add the label 'non-spouse' to those who are not spouses
   select(pair, kinship, type) %>%
   distinct() # mean = 0.04604954, n = 166
+write.csv(bayaka_total, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/bayaka_total.csv")
 
 
 ##################################### PERMUTE RELATEDNESS #####################################
