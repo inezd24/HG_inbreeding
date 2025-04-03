@@ -8,7 +8,7 @@ library(reshape2)
 library(readr)
 library(dplyr)
 
-##################################### SET UP THE ENVIRONMENT #####################################
+##################################### IMPORT DATA #####################################
 
 # Import data
 raute_census_combined <- readxl::read_xlsx("/Users/inezd/Hunter Gatherer Resilience/Input/raute_census_january_2022.xlsx",
@@ -22,6 +22,8 @@ raute_20_kin <- read.delim("~/PHD/Genetic_Data/IBIS/raute_maf_20.coef",
 raute_7_kin <- read.delim("~/PHD/Genetic_Data/IBIS/raute_maf_7.coef",
                           col.names = c("sample_1", "sample_2", "kinship_7", "IBD2_7", "segment_count", "degree_of_relatedness"))
 
+
+##################################### CREATE COLOUR LIST #####################################
 
 # Add colour list to my colour palette
 own_colours = list(
@@ -37,7 +39,8 @@ own_colours = list(
                    "#EF048B", "#A0017C"),
   colourblind_friendly = c("#ffa635", "#b77fff", "#ff9dcc", "#839ffe"))
 
-##################################### TRANSFORM DATA #####################################
+
+##################################### SPOUSES FILE #####################################
 
 ## STEP 1: GET RELATEDNESS FOR SPOUSES
 
@@ -111,6 +114,9 @@ spouses <- spouses %>%
   mutate(inbreeding_coef = 0.5*(FROH_1 + FROH_2) + (0.5*kinship))
 mean(spouses$inbreeding_coef) # Mean is 0.292846
 
+# Save file
+write.csv(spouses, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/spousal_information.csv")
+write.csv(raute_IBD_summary, "/Users/inezd/Documents/Science/Raute/R_Files/raute_IBD_summary.csv")
 
 # Supplementary Figure 4
 spouses$couple <- factor(spouses$pair, levels = spouses$pair[order(spouses$kinship)])
@@ -126,7 +132,87 @@ ggplot(spouses, aes(x = kinship, y = couple)) +
 dev.off()
 spouses$couple <- NULL
 
-# Save file
-write.csv(spouses, "/Users/inezd/PHD/Chapter_3/R_Files/spousal_information.csv")
-write.csv(raute_IBD_summary, "/Users/inezd/PHD/Chapter_3/R_Files/raute_IBD_summary.csv")
+
+##################################### ELIGIBLE POPULATION #####################################
+
+# Create datafile with eligible pairs of Raute individuals
+raute_list <- raute_census_combined %>%
+  filter(alive2022 == "Yes") %>%
+  select(id_2014, sex, age2022, gottra_born, gottra_married) 
+write.csv(raute_list, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/raute_list.csv")
+
+# From this dataframe, generate pairs
+raute_eligible <- combn(raute_list$id_2014, 2) %>%
+  t() %>%
+  as.data.frame() %>%
+  rename(X1 = V1, X2 = V2) %>%
+  left_join(raute_list %>% 
+              select(X1 = id_2014, sex_x = sex, age_x = age2022), by = 'X1') %>%
+  left_join(raute_list %>% 
+              select(X2 = id_2014, sex_y = sex, age_y = age2022), by = 'X2') %>%
+  filter(sex_x != sex_y, age_x > 16, age_y > 16) %>% # Only individuals of opposite sex and older than 16 
+  left_join(id_gen %>% select(X1 = id_2014, ind.x= ind), by = 'X1') %>%
+  left_join(id_gen %>% select(X2 = id_2014, ind.y= ind), by = 'X2') %>%
+  left_join(raute_fam %>% select(ind.x = V1, id1 = new_IID), by = 'ind.x') %>%
+  left_join(raute_fam %>% select(ind.y = V1, id2 = new_IID), by = 'ind.y') %>%
+  select(c(9,10,3:6)) %>%
+  mutate(pair = paste(pmin(id1, id2), pmax(id1, id2), sep = '-')) %>%
+  left_join(population_relatedness, by = c('id1', 'id2', 'pair')) %>% # add relatedness values and gottra information
+  left_join(homozygosity %>% select(id1 = IID, FROH.x = FROH), by = 'id1') %>%
+  left_join(homozygosity %>% select(id2 = IID, FROH.y = FROH), by = 'id2') %>%
+  filter(kinship < 0.1768) #496 dyads
+write.csv(raute_eligible, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/raute_eligible.csv")
+
+
+##################################### TOTAL POPULATION #####################################
+
+# Total population relatedness
+raute_total <- raute_IBD_summary %>% 
+  left_join(raute_7_kin %>% select(kinship = kinship_7, pair), by = 'pair') %>%
+  left_join(spouses %>% select(pair, type), by = 'pair') %>%
+  mutate(type = replace_na(type, "non-spouse")) %>%
+  na.omit() %>%
+  mutate(id1 = sub("\\-.*", "", pair),
+         id2 = sub(".*-", "", pair)) %>%
+  left_join(id_gen %>% select(id1 = new_IID, gottra_born.1 = gottra_born, gottra_married.1 = gottra_married), by = 'id1') %>%
+  left_join(id_gen %>% select(id2 = new_IID, gottra_born.2 = gottra_born, gottra_married.2 = gottra_married), by = 'id2') %>%
+  mutate(gottra_marry.1 = if_else(is.na(gottra_married.1), gottra_born.1, gottra_married.1),
+         gottra_marry.2 = if_else(is.na(gottra_married.2), gottra_born.2, gottra_married.2),
+         gottra_combo = paste(pmin(gottra_marry.1, gottra_marry.2), 
+                              pmax(gottra_marry.1, gottra_marry.2), sep = "-"),
+         gottra_check = if_else(gottra_marry.1 == gottra_marry.2, "same", "different"))
+
+
+##################################### PERMUTE RELATEDNESS #####################################
+
+# Use function from script 'Function_Permute_relatedness.R'
+
+# Apply function
+permuted_means <- permute_relatedness(raute_total)
+
+# Save in separate dataframe for later merging
+raute_permuted <- data.frame(Population = 'Raute', kinship = permuted_means$permuted_means_df$sim)
+
+
+
+## End of Script
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
