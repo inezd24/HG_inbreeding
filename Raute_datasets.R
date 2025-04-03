@@ -17,10 +17,8 @@ raute_only_IBD <- read_table("/Users/inezd/PHD/Genetic_Data/IBD_analyses/all.rau
                              col_names = c("sample_1", "haplo_1", "sample_2", "haplo_2", "chr", "start", "end","LOD", "length_cM"))
 raute_genealogies_complete <- readxl::read_xlsx("/Users/inezd/Hunter Gatherer Resilience/Input/raute_census_january_2022.xlsx",
                                                 sheet = "genealogies - correct")
-raute_20_kin <- read.delim("~/PHD/Genetic_Data/IBIS/raute_maf_20.coef", 
-                           col.names = c("sample_1", "sample_2", "kinship_20", "IBD2_20", "segment_count", "degree_of_relatedness"))
 raute_7_kin <- read.delim("~/PHD/Genetic_Data/IBIS/raute_maf_7.coef",
-                          col.names = c("sample_1", "sample_2", "kinship_7", "IBD2_7", "segment_count", "degree_of_relatedness"))
+                          col.names = c("sample_1", "sample_2", "kinship_7", "IBD2_7", "segment_count", "degree_of_relatedness")) # Df with kinship coefficients
 
 
 ##################################### CREATE COLOUR LIST #####################################
