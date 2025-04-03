@@ -19,7 +19,7 @@ agta_spouse <- read_excel("/Users/inezd/Documents/Science/Raute/Genetic_Data/dat
 agta_coef <- read.delim("/Users/inezd/Documents/Science/Raute/Genetic_Data/IBIS/Agta.coef", 
                            col.names = c("sample_1", "sample_2", "kinship", "IBD2", "segment_count", "degree_of_relatedness")) # Agta output from IBIS
 
-##################################### TRANSFORM DATA #####################################
+##################################### SPOUSES FILES #####################################
 
 # Change ID dataframe
 AGTA_BAYAKA <- agta_fam %>%
@@ -67,36 +67,97 @@ create_spouse_file <- function(data_file, id_file, coef_file){ # the data file n
            id2 = pmax(sample_1, sample_2), # create alaphabetic id
            pair = paste(pmin(id1, id2), pmax(id1, id2), sep = '-')) %>% # create pair
     inner_join(coef_file %>% select(kinship, pair), by = 'pair') %>% # join with relatedness file by pair
-    mutate(type = 'spouse') # add variable that shows these are spouses
-  return(out_file) # return output file
-}
-bayaka_spouses <- create_spouse_file(bayaka_data, AGTA_BAYAKA, bayaka_coef)
-agta_spouses <- create_spouse_file(agta_genealogies, AGTA_BAYAKA, agta_coef) 
-
-# Those datafiles are not finished yet, first we have to make an 'individuals' file
-make_individual_file <- function(spouses_file){
-  ind_file <- spouses_file %>%
-    select(kinship, sample_1, sample_2) %>%
-    pivot_longer(!kinship, values_to = 'sample_1') %>%
-    distinct(sample_1)
-  return(ind_file)
-}
-bayaka_spouse_ind <- make_individual_file(bayaka_spouses)
-agta_spouse_ind <- make_individual_file(agta_spouses)
-
-# Finish previous data files
-finish_spouses_file <- function(spouses_file){
-  finished_file <- spouses_file %>%
+    mutate(type = 'spouse') %>% # add variable that shows these are spouses
     select(pair, kinship, type) %>%
     distinct() 
-  return(finished_file)
+  return(out_file) # return output file
 }
-bayaka_spouses <- finish_spouses_file(bayaka_spouses)
-agta_spouses <- finish_spouses_file(agta_spouses)
+
+# Apply function
+bayaka_spouses <- create_spouse_file(bayaka_data, AGTA_BAYAKA, bayaka_coef)
+agta_spouses <- create_spouse_file(agta_genealogies, AGTA_BAYAKA, agta_coef) 
 
 # Save datafiles
 write.csv(bayaka_spouses, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/bayaka_spouses.csv")
 write.csv(agta_spouses, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/agta_spouses.csv")
+
+
+##################################### ELIGIBLE POPULATION #####################################
+
+### For the Agta
+
+# Add age
+agta_data <- agta_data %>%
+  mutate(age = 2014 - `Birth Year`)
+
+# Create file
+agta_eligible <- as.data.frame(t(combn(agta_data$ID, 2))) %>% # make combinations of all individuals
+  rename(X1 = V1, X2 = V2) %>% # rename
+  left_join(agta_data %>% select(ID, Sex, age), by = c("X1" = "ID")) %>% # add age and sex of one individual
+  left_join(agta_data %>% select(ID, Sex, age), by = c("X2" = "ID"), suffix = c(".x", ".y")) %>% # add age and sex of second individual
+  filter(Sex.x != Sex.y, !is.na(age.x), !is.na(age.y), age.x > 16, age.y > 16) %>% # select only opposite sex pairs, have to have age, and older than 16
+  left_join(AGTA_BAYAKA %>% select(X1 = old_FID, new_IID), by = "X1") %>% # add new id
+  left_join(AGTA_BAYAKA %>% select(X2 = old_FID, new_IID), by = "X2", suffix = c(".x", ".y")) %>% # add new id
+  mutate(pair = paste(pmin(new_IID.x, new_IID.y), pmax(new_IID.x, new_IID.y), sep = "-")) %>%
+  left_join(agta_coef, by = "pair") %>%
+  select(pair, kinship) %>%
+  distinct() %>%
+  filter(kinship < 0.1768) #2422, mean is 0.02020264
+
+
+### For the BaYaka
+bayaka_eligible <- as.data.frame(t(combn(bayaka_data$short_ID[!bayaka_data$short_ID == 'X236'], 2))) %>% # make combinations of all individuals
+  rename(X1 = V1, X2 = V2) %>% # rename
+  distinct() %>%
+  left_join(bayaka_data %>% select(X1 = short_ID, Gender, LifeStage), by = "X1") %>% # add age and sex of one individual
+  left_join(bayaka_data %>% select(X2 = short_ID, Gender, LifeStage), by = "X2", suffix = c(".x", ".y")) %>% # add age and sex of second individual
+  filter(Gender.x != Gender.y, grepl("adult", LifeStage.x), grepl("adult", LifeStage.y)) %>%
+  left_join(AGTA_BAYAKA %>% select(X1 = old_FID, new_IID), by = "X1") %>% # add new id
+  left_join(AGTA_BAYAKA %>% select(X2 = old_FID, new_IID), by = "X2", suffix = c(".x", ".y")) %>% # add new id
+  mutate(pair = paste(pmin(new_IID.x, new_IID.y), pmax(new_IID.x, new_IID.y), sep = "-")) %>%
+  left_join(bayaka_coef, by = "pair") %>%
+  select(pair, kinship) %>%
+  distinct() %>%
+  filter(kinship < 0.1768) #49, mean is 0.02500855
+
+
+
+##################################### TOTAL POPULATION #####################################
+
+### For the Agta
+agta_total <- agta_coef %>% # relatedness file
+  left_join(agta_spouses %>% select(pair, type), by = "pair") %>% # add spouses label to the datafile
+  mutate(type = ifelse(is.na(type), "non-spouse", type)) %>% # add the label 'non-spouse' to those who are not spouses
+  select(pair, kinship, type) %>%
+  distinct() # mean = 0.02539593, n = 9755
+
+### For the BaYaka
+bayaka_total <- bayaka_coef %>% # relatedness file
+  left_join(bayaka_spouses %>% select(pair, type), by = "pair") %>% # add spouses label to the datafile
+  mutate(type = ifelse(is.na(type), "non-spouse", type)) %>% # add the label 'non-spouse' to those who are not spouses
+  select(pair, kinship, type) %>%
+  distinct() # mean = 0.04604954, n = 166
+
+
+##################################### PERMUTE RELATEDNESS #####################################
+
+# Use function from script 'Function_Permute_relatedness.R'
+
+bayaka_permuted <- permute_relatedness(bayaka_total)
+agta_permuted <- permute_relatedness(agta_total)
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
