@@ -1,11 +1,12 @@
 # Script written by Inez Derkx, edited March 2025
-# This script is a function that allows you to permute relatedness in the datafile structure used in the paper '', Derkx et al. 2025. 
-# This function requires a datafile that has the following variables and assumes you want to run 1000 permutations with a seed of 123:
+# This script is a function that allows you to permute relatedness in the datafile structure used in the paper: 
+# 'Inbreeding and its avoidance in hunter-gatherer populations: a case study of the Raute', Derkx et al. 2025. 
+# This function requires a datafile that has the following variables and assumes you want to run 10.000 permutations with a seed of 123:
       # kinship: this is the dyadic relatedness between a pair of individuals. It can be any kinship measure you desire, as long as it's numerical. 
       # type: this is the type of relationship of the dyad. This variable is a character/string. 
       # It is assumed that the datafile contains pairs of individuals who are spouses (named 'spouse') and those who aren't spouses (named 'non-spouse'). 
 
-permute_relatedness <- function(datafile, num_permutations = 1000, seed = 123) {
+permute_relatedness <- function(datafile, num_permutations = 10000, seed = 123) {
   
   # For reproducibility
   set.seed(seed)  
