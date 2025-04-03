@@ -111,6 +111,21 @@ spouses <- spouses %>%
   mutate(inbreeding_coef = 0.5*(FROH_1 + FROH_2) + (0.5*kinship))
 mean(spouses$inbreeding_coef) # Mean is 0.292846
 
+
+# Supplementary Figure 4
+spouses$couple <- factor(spouses$pair, levels = spouses$pair[order(spouses$kinship)])
+png("/Users/inezd/Documents/Science/Raute/Chapter_3/Plots/compare_spouses.png", height = 1000, width = 1000)
+ggplot(spouses, aes(x = kinship, y = couple)) +
+  geom_point(size = 5, color = "#ff839f", alpha = 0.7) +  # Customize point size and color
+  geom_vline(xintercept = 0.141, color = '#b77fff', linetype="dotted", size = 2) +
+  theme_classic() +
+  scale_x_continuous(limits = c(0.10, 0.15)) +
+  labs(x = "Relatedness", y = "Couples") +
+  theme(axis.text.y = element_blank(),
+        text = element_text(size = 40)) 
+dev.off()
+spouses$couple <- NULL
+
 # Save file
 write.csv(spouses, "/Users/inezd/PHD/Chapter_3/R_Files/spousal_information.csv")
 write.csv(raute_IBD_summary, "/Users/inezd/PHD/Chapter_3/R_Files/raute_IBD_summary.csv")
