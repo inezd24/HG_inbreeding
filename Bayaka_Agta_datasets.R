@@ -143,10 +143,15 @@ bayaka_total <- bayaka_coef %>% # relatedness file
 
 # Use function from script 'Function_Permute_relatedness.R'
 
+# Apply function
 bayaka_permuted <- permute_relatedness(bayaka_total)
 agta_permuted <- permute_relatedness(agta_total)
 
+# Save files
+write.csv(bayaka_permuted, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/bayaka_permuted.csv")
+write.csv(agta_permuted, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/agta_permuted.csv")
 
+## End of script
 
 
 
