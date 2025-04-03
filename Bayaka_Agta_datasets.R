@@ -19,7 +19,7 @@ agta_spouse <- read_excel("/Users/inezd/Documents/Science/Raute/Genetic_Data/dat
 agta_coef <- read.delim("/Users/inezd/Documents/Science/Raute/Genetic_Data/IBIS/Agta.coef", 
                            col.names = c("sample_1", "sample_2", "kinship", "IBD2", "segment_count", "degree_of_relatedness")) # Agta output from IBIS
 
-##################################### SPOUSES FILES #####################################
+##################################### DATA PREPARATION #####################################
 
 # Change ID dataframe
 AGTA_BAYAKA <- agta_fam %>%
@@ -55,7 +55,9 @@ add_pair <- function(coef_file) {
 bayaka_coef <- add_pair(bayaka_coef)
 agta_coef <- add_pair(agta_coef)
 
-# Create spouses file
+##################################### SPOUSES FILE #####################################
+
+# Create spouses file function
 create_spouse_file <- function(data_file, id_file, coef_file){ # the data file needs to have an id column called 'short_ID' and a spouse column called 'spouse_id'
   out_file <- data_file %>%
     select(short_ID, spouse_id) %>% # select columns with ID of individual and ID of their spouse
@@ -146,13 +148,20 @@ write.csv(bayaka_total, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/
 
 # Use function from script 'Function_Permute_relatedness.R'
 
-# Apply function
-bayaka_permuted <- permute_relatedness(bayaka_total)
-agta_permuted <- permute_relatedness(agta_total)
+# Apply function for BaYaka
+permuted_means <- permute_relatedness(bayaka_total)
+bayaka_permuted <- data.frame(Population = 'BaYaka', kinship = permuted_means$permuted_means_df$sim)
+
+# Apply function for Agta
+permuted_means <- permute_relatedness(agta_total)
+agta_permuted <- data.frame(Population = 'Agta', kinship = permuted_means$permuted_means_df$sim)
 
 # Save files
 write.csv(bayaka_permuted, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/bayaka_permuted.csv")
 write.csv(agta_permuted, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/agta_permuted.csv")
+
+
+
 
 ## End of script
 
