@@ -181,6 +181,7 @@ raute_total <- raute_IBD_summary %>%
          gottra_combo = paste(pmin(gottra_marry.1, gottra_marry.2), 
                               pmax(gottra_marry.1, gottra_marry.2), sep = "-"),
          gottra_check = if_else(gottra_marry.1 == gottra_marry.2, "same", "different"))
+write.csv(raute_total, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/raute_total.csv")
 
 
 ##################################### PERMUTE RELATEDNESS #####################################
@@ -192,6 +193,7 @@ permuted_means <- permute_relatedness(raute_total)
 
 # Save in separate dataframe for later merging
 raute_permuted <- data.frame(Population = 'Raute', kinship = permuted_means$permuted_means_df$sim)
+write.csv(raute_permuted, "/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/raute_permuted.csv")
 
 
 
