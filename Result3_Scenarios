@@ -1,0 +1,373 @@
+# Libraries
+library(reshape2)
+library(ggplot2)
+library(effects)
+library(sjPlot)
+
+# Load data files
+raute_pairs <- read.csv("/Users/inezd/PHD/Genetic_Data/IBD_analyses/Analyses/raute_pairs.csv", header = T, row.names = 1)
+raute_list <- read.csv("/Users/inezd/PHD/Genetic_Data/IBD_analyses/Analyses/raute_list.csv", header = T, row.names = 1)
+population_relatedness <- read.csv("/Users/inezd/PHD/Chapter_3/R_Files/population_relatedness.csv", header = T, row.names = 1)
+
+# Examine patriclans amongst spouses
+patriclan_spouses <- population_relatedness[(population_relatedness$type == 'spouse'),]
+patriclan_spouses$shared_clan <- paste(pmin(patriclan_spouses$gottra_born.1, patriclan_spouses$gottra_born.2), 
+                                       pmax(patriclan_spouses$gottra_born.1, patriclan_spouses$gottra_born.2), 
+                                       sep = "-")
+table(patriclan_spouses$shared_clan) #K-R, K-S, R-S, R-R > 6, 3, 2
+
+# Add inbreeding coefficients to df
+raute_list <- raute_list %>%
+  mutate(gottra_marry = if_else(is.na(gottra_married), gottra_born, gottra_married)) %>%
+  left_join(homozygosity %>% select(new_IID = IID, F, FROH), by = 'new_IID')
+
+raute_list$gottra_marry <- raute_list$gottra_married
+raute_list$gottra_marry[is.na(raute_list$gottra_marry)] <- raute_list$gottra_born[is.na(raute_list$gottra_marry)]
+names(raute_list)[7] <- 'IID'
+raute_list <- merge(raute_list, homozygosity[,c(2,6,7)], all.x=T)
+
+
+
+### EXAMINE INBREEDING
+
+# Examine relatedness, EOIC and the second EOIC in spouses file
+observed_eoic <- mean(spouses$eoic)
+observed_eoic2 <- mean(spouses$eoic2)
+observed_r <- mean(spouses$kinship)
+
+
+### SIMULATIONS
+
+# Function to calculate the expected inbreeding coefficient for offspring
+expected_inbreeding_offspring <- function(father, mother, kinship) {
+  return(0.5 * (father + mother) + 0.5 * kinship)
+}
+
+# Function to calculate the expected inbreeding coefficient for offspring, but altered
+expected_inbreeding_offspring2 <- function(father, mother, kinship) {
+  return((father + mother)/2 + (kinship*(1+father)*(1+mother))/2)
+}
+
+
+# Perform simulations
+inbreeding_scenarios <-function(raute_list, population_relatedness){
+  
+  # Number of simulations
+  num_simulations = 1000
+  
+  # Three simulation scenarios
+  simulated_random_inbreeding_avgs <- data.frame(eoic_r = as.numeric(), eoic2_r = as.numeric(), rel_r = as.numeric(), n_r = as.numeric())
+  simulated_exogamy_inbreeding_avgs <- data.frame(eoic_ex = as.numeric(), eoic2_ex = as.numeric(), rel_ex = as.numeric(),n_ex = as.numeric())
+  simulated_endogamy_inbreeding_avgs <- data.frame(eoic_en = as.numeric(), eoic2_en = as.numeric(), rel_en = as.numeric(), n_en = as.numeric())
+  simulated_kin_inbreeding_avgs <- data.frame(eoic_k = as.numeric(), eoic2_k = as.numeric(), rel_k = as.numeric(), n_k = as.numeric())
+  simulated_inbreeding <- cbind(simulated_random_inbreeding_avgs, simulated_exogamy_inbreeding_avgs, simulated_endogamy_inbreeding_avgs, simulated_kin_inbreeding_avgs)
+  
+  # First set seed for replication
+  set.seed(123)
+  
+  # Then run through scenarios
+  for (sim in 1:num_simulations) {
+    
+    print("Create general dataset")
+    
+    # Create subsets with males and females separately
+    males <- raute_list %>% filter(sex == "M" & age2022 > 16) %>% rename("ManID" = 'new_IID')
+    females <- raute_list %>% filter(sex == "F" & age2022 > 16) %>% rename("WomanID" = 'new_IID')
+    
+    # Create a general dataset with all couples and relatedness and stuff
+    general_dataset <- expand_grid(ManID = males$ManID, WomanID = females$WomanID) %>%
+      mutate(ManID = as.character(ManID), WomanID = as.character(WomanID),
+             pair = paste(pmin(ManID, WomanID), pmax(ManID, WomanID), sep = '-')) %>%
+      left_join(population_relatedness %>% select(pair, kinship), by = 'pair') %>%
+      left_join(raute_list %>% select(ManID = new_IID, F, FROH), by = 'ManID') %>%
+      left_join(raute_list %>% select(WomanID = new_IID, F, FROH), by = 'WomanID') %>%
+      drop_na(kinship, FROH.x, FROH.y)
+    
+    print("Finished creating general dataset")
+    
+    ### Scenario 1: Random mating
+    
+    print("Simulation 1: start")
+    
+    #Sample 11 couples
+    nrow(general_dataset) # 1088 couples
+    simulated_random_couples <- sample_n(general_dataset, 11)
+    
+    # Simulate inbreeding over these couples
+    simulated_random_inbreeding <- c()
+    simulated_random_inbreeding2 <- c()
+    for (i in 1:nrow(simulated_random_couples)) {
+      inbreeding <- data.frame(inbred = as.numeric(expected_inbreeding_offspring(simulated_random_couples$FROH.x[i], 
+                                                                    simulated_random_couples$FROH.y[i], 
+                                                                    simulated_random_couples$kinship[i])))
+      inbreeding2 <- data.frame(inbred = as.numeric(expected_inbreeding_offspring2(simulated_random_couples$FROH.x[i], 
+                                                                                 simulated_random_couples$FROH.y[i], 
+                                                                                 simulated_random_couples$kinship[i])))
+      simulated_random_inbreeding <- rbind(simulated_random_inbreeding, inbreeding)
+      simulated_random_inbreeding2 <- rbind(simulated_random_inbreeding2, inbreeding2)
+      }
+    print(simulated_random_inbreeding)
+    avgs <- data.frame(eoic_r = mean(simulated_random_inbreeding$inbred))
+    avgs2 <- data.frame(eoic2_r = mean(simulated_random_inbreeding2$inbred))
+    kin <- data.frame(rel_r = mean(simulated_random_couples$kinship))
+    length <- data.frame(n_r = nrow(simulated_random_inbreeding))
+    print(avgs)
+    
+    # Combine two measures
+    sim_random_inb <- cbind(avgs, avgs2, kin, length)
+    
+    # Add to initial dataframe
+    simulated_random_inbreeding_avgs <- rbind(simulated_random_inbreeding_avgs, sim_random_inb)
+    print(head(simulated_random_inbreeding_avgs))
+    
+    print("Simulation 1: complete")
+    
+    ### Scenario 2: "Exogamous" mating (outside of patriclan)
+    
+    print("Simulation 2: start")
+    
+    # Use general dataset, but there are some additional things:
+    
+    # Add gottra and delete some gottra individuals
+    simulated_exogamy_couples <- general_dataset %>%
+      left_join(males %>% select(ManID, gottra_born), by = "ManID") %>%
+      left_join(females %>% select(WomanID, gottra_born), by = "WomanID") %>%
+      filter(gottra_born.x != gottra_born.y,  # Remove same birth gottra pairs
+             !is.na(gottra_born.x),           # Remove rows where ManID gottra_born is NA
+             !is.na(gottra_born.y),
+             kinship <= 0.1768) # Leaves 592 couples
+    
+    #Sample 11 couples
+    simulated_exogamy_couples <- sample_n(simulated_exogamy_couples, 11)
+    
+    # Simulate inbreeding for these couples
+    simulated_exogamy_inbreeding <- c()
+    simulated_exogamy_inbreeding2 <- c()
+    for (i in 1:nrow(simulated_exogamy_couples)) {
+      inbreeding <- data.frame(inbred = as.numeric(expected_inbreeding_offspring(simulated_exogamy_couples$FROH.x[i], 
+                                                                    simulated_exogamy_couples$FROH.y[i], 
+                                                                    simulated_exogamy_couples$kinship[i])))
+      inbreeding2 <- data.frame(inbred = as.numeric(expected_inbreeding_offspring2(simulated_exogamy_couples$FROH.x[i], 
+                                                                                    simulated_exogamy_couples$FROH.y[i], 
+                                                                                    simulated_exogamy_couples$kinship[i])))
+      simulated_exogamy_inbreeding <- rbind(simulated_exogamy_inbreeding, inbreeding)
+      simulated_exogamy_inbreeding2 <- rbind(simulated_exogamy_inbreeding2, inbreeding2)
+    }
+    print(simulated_exogamy_inbreeding)
+    avgs <- data.frame(eoic_ex = mean(simulated_exogamy_inbreeding$inbred))
+    avgs2 <- data.frame(eoic2_ex = mean(simulated_exogamy_inbreeding2$inbred))
+    kin <- data.frame(rel_ex = mean(simulated_exogamy_couples$kinship))
+    length <- data.frame(n_ex = nrow(simulated_exogamy_inbreeding))
+    print(avgs)
+    
+    # Combine two measures
+    sim_exogamy_inb <- cbind(avgs, avgs2, kin, length)
+    
+    # Add to initial dataframe
+    simulated_exogamy_inbreeding_avgs <- rbind(simulated_exogamy_inbreeding_avgs, sim_exogamy_inb)
+    print(head(simulated_exogamy_inbreeding_avgs))
+    
+    
+    print("Simulation 2: complete")
+    
+    ### Scenario 3: "Endogamous" mating (outside of patriclan)
+    
+    print("Simulation 3: start")
+    
+    # Again, we can use the base dataset and add to it
+    simulated_endogamy_couples <- general_dataset %>%
+      left_join(males %>% select(ManID, gottra_born), by = "ManID") %>%
+      left_join(females %>% select(WomanID, gottra_born), by = "WomanID") %>%
+      filter(gottra_born.x == gottra_born.y,  # Remove same birth gottra pairs
+             !is.na(gottra_born.x),           # Remove rows where ManID gottra_born is NA
+             !is.na(gottra_born.y)) # Leaves 410 couples
+
+    #Sample 11 couples
+    simulated_endogamy_couples <- sample_n(simulated_endogamy_couples, 11)
+    
+    # Loop through the couples 
+    simulated_endogamy_inbreeding <- c()
+    simulated_endogamy_inbreeding2 <- c()
+    for (i in 1:nrow(simulated_endogamy_couples)) {
+      inbreeding <- data.frame(inbred = as.numeric(expected_inbreeding_offspring(simulated_endogamy_couples$FROH.x[i], 
+                                                simulated_endogamy_couples$FROH.y[i], 
+                                                simulated_endogamy_couples$kinship[i])))
+      inbreeding2 <- data.frame(inbred = as.numeric(expected_inbreeding_offspring2(simulated_endogamy_couples$FROH.x[i], 
+                                                                                   simulated_endogamy_couples$FROH.y[i], 
+                                                                                   simulated_endogamy_couples$kinship[i])))
+      simulated_endogamy_inbreeding <- rbind(simulated_endogamy_inbreeding, inbreeding)
+      simulated_endogamy_inbreeding2 <- rbind(simulated_endogamy_inbreeding2, inbreeding2)
+    }
+    print(simulated_endogamy_inbreeding)
+    avgs <- data.frame(eoic_en = mean(simulated_endogamy_inbreeding$inbred))
+    avgs2 <- data.frame(eoic2_en = mean(simulated_endogamy_inbreeding2$inbred))
+    kin <- data.frame(rel_en = mean(simulated_endogamy_couples$kinship))
+    length <- data.frame(n_en = nrow(simulated_endogamy_inbreeding))
+    print(avgs)
+    
+    # Combine two measures
+    sim_endogamy_inb <- cbind(avgs, avgs2, kin, length)
+    
+    # Add to initial dataframe
+    simulated_endogamy_inbreeding_avgs <- rbind(simulated_endogamy_inbreeding_avgs, sim_endogamy_inb)
+    print(head(simulated_endogamy_inbreeding_avgs))
+    
+    print("Simulation 3: complete")
+    
+    ### Scenario 4: Only non-kin mating rule
+    
+    print("Simulation 4: start")
+    
+    # Again, we recycle, only add the kin rule
+    simulated_kin_couples <- general_dataset %>%
+      filter(kinship <= 0.1768) # Leaves 994 couples
+    
+    #Sample 11 couples
+    simulated_kin_couples <- sample_n(simulated_kin_couples, 11)
+    
+    # Simulate inbreeding for these couples
+    simulated_kin_inbreeding <- c()
+    simulated_kin_inbreeding2 <- c()
+    for (i in 1:nrow(simulated_kin_couples)) {
+      inbreeding <- data.frame(inbred = as.numeric(expected_inbreeding_offspring(simulated_kin_couples$FROH.x[i], 
+                                                                               simulated_kin_couples$FROH.y[i], 
+                                                                               simulated_kin_couples$kinship[i])))
+      inbreeding2 <- data.frame(inbred = as.numeric(expected_inbreeding_offspring2(simulated_kin_couples$FROH.x[i], 
+                                                                                   simulated_kin_couples$FROH.y[i], 
+                                                                                   simulated_kin_couples$kinship[i])))
+      simulated_kin_inbreeding <- rbind(simulated_kin_inbreeding, inbreeding)
+      simulated_kin_inbreeding2 <- rbind(simulated_kin_inbreeding2, inbreeding2)
+    }
+    print(simulated_kin_inbreeding)
+    avgs <- data.frame(eoic_k = mean(simulated_kin_inbreeding$inbred))
+    avgs2 <- data.frame(eoic2_k = mean(simulated_kin_inbreeding2$inbred))
+    kin <- data.frame(rel_k = mean(simulated_kin_couples$kinship))
+    length <- data.frame(n_k = nrow(simulated_kin_inbreeding))
+    print(avgs)
+    
+    # Combine two measures
+    sim_kin_inb <- cbind(avgs, avgs2, kin, length)
+    
+    # Add to initial dataframe
+    simulated_kin_inbreeding_avgs <- rbind(simulated_kin_inbreeding_avgs, sim_kin_inb)
+    print(head(simulated_kin_inbreeding_avgs))
+    
+    print("Simulation 4: complete")
+  }
+  
+  # Put all three together
+  simulated_inbreeding <- cbind(simulated_random_inbreeding_avgs, simulated_exogamy_inbreeding_avgs, simulated_endogamy_inbreeding_avgs, simulated_kin_inbreeding_avgs)
+  return(simulated_inbreeding)
+  
+}
+
+# Apply the function
+check <- inbreeding_scenarios(raute_list, population_relatedness)
+sim_results <- check %>%
+  pivot_longer(cols = everything(), names_to = "Sim", values_to = "Coef") %>%
+  mutate(
+    Scenario = case_when(
+      grepl("_r", Sim)  ~ "Random",
+      grepl("_ex", Sim) ~ "Exogamy",
+      grepl("_en", Sim) ~ "Endogamy",
+      grepl("_k", Sim) ~ "Kin rule",  # Handles all other 'eoic_' cases
+      TRUE ~ NA_character_
+    ),
+    Measure = case_when(
+      grepl("eoic_", Sim)  ~ "EOIC",
+      grepl("eoic2_", Sim) ~ "EOIC2",
+      grepl("rel_", Sim) ~ "Relatedness",
+      grepl("n_", Sim) ~ "n",  # Handles all other 'eoic_' cases
+      TRUE ~ NA_character_
+  ))
+
+# Relevant averages
+line_data <- data.frame(
+  Measure = c("EOIC", "Relatedness"),
+  y_value = c(observed_eoic, observed_r)
+)
+
+# Make subset
+EOIC_results <- sim_results[(sim_results$Measure == 'EOIC'),]
+
+# Plot
+png("/Users/inezd/Documents/Science/Raute/Chapter_3/Plots/boxplot_inbreeding.png", width = 1400, height = 1000)
+boxplot_inbreeding <- ggplot(EOIC_results, aes(x = Scenario, y = Coef)) +
+  geom_boxplot(aes(fill= Scenario), alpha = 0.6) +
+  #geom_hline(data = line_data, aes(yintercept = y_value), 
+  #           linetype = "dashed", color = "#b77fff", size = 1) +
+  scale_fill_manual(values=c("#ffda83", "#ffa635", "#839ffe", "#ff839f")) +
+  labs(x = "Scenario", y = "EOIC") +
+  theme_classic() +
+  #scale_x_discrete(labels=c("Endogamy" = "Endo", "Exogamy" = "Exo",
+  #                          "Kin rule" = "Kin", 'Random' = "Ran")) +
+  theme(text = element_text(size = 40),
+        legend.position = "none")
+boxplot_inbreeding
+dev.off()
+
+# Are there significant differences between the scenarios?
+hist(sim_results$Coef[(sim_results$Measure == 'EOIC')]) # Data is normally distributed
+aov_result <- aov(Coef ~ Scenario, data = sim_results[(sim_results$Measure == 'EOIC'),])
+summary(aov_result)
+TukeyHSD(aov_result)
+
+
+
+# Check if we can predict EOIC
+model_sim <- brm(Coef ~ Scenario, 
+             data = sim_results[(sim_results$Measure == 'EOIC'),], 
+             family = gaussian(),
+             prior = c(set_prior("normal(0, 1)", class = "b")), 
+             chains = 4, iter = 4000, warmup = 1000, cores = 4)
+
+
+# Check normality of residuals
+pp_check(model_sim, type = "dens_overlay") # normally distributed
+res <- residuals(model_sim)
+qqnorm(res) # follow a linear pattern
+
+# Check homoscedasticity
+pp_check(model_sim, type = "scatter_avg") # more or less equal variance across categories 
+
+# Check sample size
+summary(sim_results$Scenario) # 1000 per scenario, seems fine
+
+# Outcome of model
+summary(model_sim) # Rhat values are 1
+plot(model_sim)
+cond_model_sim <- conditional_effects(model_sim, effects = "Scenario")
+cond_model_sim <- cond_model_sim[[1]]  #
+png("/Users/inezd/Documents/Science/Raute/Chapter_3/Plots/model_simulation.png", width = 800, height = 800)
+ggplot(cond_model_sim, aes(x = Scenario, y = estimate__, ymin = lower__, ymax = upper__, group = Scenario)) +
+  geom_pointrange(linewidth = 1) +  # Plot the point estimate with confidence intervals
+  geom_point(aes(color = Scenario),size = 5, alpha = 0.6) +  # Customize point appearance
+  theme_classic() +
+  scale_color_manual(values=c("#ffda83", "#ffa635", "#839ffe", "#ff839f")) +
+  theme(text = element_text(size = 30),
+        legend.position = "none" ) +
+  labs(y = "Expected offspring inbreeding coefficient", x = "Scenario", color = 'Clan membership')
+  #scale_y_continuous(limits = c(0.2895, 0.292), breaks = seq(0.2895, 0.292, by = 0.0005))
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
