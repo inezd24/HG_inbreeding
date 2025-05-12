@@ -1,5 +1,7 @@
 # Script developed by Inez Derkx, summer 2024 and edited April 2025
 # Script aims to examine population relatedness in the Agta, Bayaka, and Raute
+# This script requires a function outlined in the script 'Function_Permute_relatedness.R' as well as data from 
+# the three populations, which is transformed in the scripts 'Bayaka_Agta_datasets.R' and 'Raute_datasets.R'.
 
 ##################################### IMPORT LIBRARIES #####################################
 
