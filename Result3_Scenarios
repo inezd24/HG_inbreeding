@@ -3,10 +3,10 @@
 
 ##################################### IMPORT LIBRARIES #####################################
 
-library(reshape2)
+library(dplyr)
 library(ggplot2)
 library(effects)
-library(brms
+library(brms)
 library(cmdstanr)
 
 ##################################### IMPORT DATA #####################################
