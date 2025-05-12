@@ -1,61 +1,157 @@
-# Libraries
+# Script developed by Inez Derkx, summer 2024
+# Script aims to examine the relationship between clan and expected inbreeding in the Raute
+
+##################################### IMPORT LIBRARIES #####################################
+
 library(reshape2)
 library(ggplot2)
 library(effects)
-library(sjPlot)
+library(brms
+library(cmdstanr)
 
-# Load data files
+##################################### IMPORT DATA #####################################
+
+# Import necessary files
 raute_pairs <- read.csv("/Users/inezd/PHD/Genetic_Data/IBD_analyses/Analyses/raute_pairs.csv", header = T, row.names = 1)
 raute_list <- read.csv("/Users/inezd/PHD/Genetic_Data/IBD_analyses/Analyses/raute_list.csv", header = T, row.names = 1)
-population_relatedness <- read.csv("/Users/inezd/PHD/Chapter_3/R_Files/population_relatedness.csv", header = T, row.names = 1)
+raute_total <- read.csv("/Users/inezd/Documents/Science/Raute/Chapter_3/R_Files/raute_total.csv", header = T, row.names = 1)
 
-# Examine patriclans amongst spouses
-patriclan_spouses <- population_relatedness[(population_relatedness$type == 'spouse'),]
+##################################### CLAN RELATEDNESS ########################################################################## CLAN RELATEDNESS #####################################
+
+# Compare same vs. different clan
+gottra_relatedness <- raute_total %>% 
+  group_by(gottra_check) %>% 
+  summarise(mean_kin = mean(kinship)) #check average relatedness with same versus different clan dyads
+
+# Compare
+patriclan_spouses <- raute_total[(raute_total$type == 'spouse'),]
 patriclan_spouses$shared_clan <- paste(pmin(patriclan_spouses$gottra_born.1, patriclan_spouses$gottra_born.2), 
                                        pmax(patriclan_spouses$gottra_born.1, patriclan_spouses$gottra_born.2), 
                                        sep = "-")
-table(patriclan_spouses$shared_clan) #K-R, K-S, R-S, R-R > 6, 3, 2
 
-# Add inbreeding coefficients to df
+
+##################################### COMPARING MEANS #####################################
+
+## STEP 1: EXAMINE WITHIN VERSUS BETWEEN CLAN RELATEDNESS (COMPARING MEANS)
+
+# Whitney Mann test (bc data = non-parametric): differences between the two groups? 
+wilcox.test(kinship ~ gottra_check, data = raute_total) # yes, clear differences! > But just for initial indication
+
+# Can we say whether the difference is meaningful? > Create Confidence Intervals for group means
+
+# Function for the mean
+boot_mean <- function(data, indices) {
+  mean(data[indices])}
+
+# Function for bootstrapping
+boot_data <- function(data){
+
+  # Subset the two groups
+  group1 <- data$kinship[data$gottra_check == "different"]
+  group2 <- data$kinship[data$gottra_check == "same"]
+
+  # Apply bootstrapping function
+  boot1 <- boot(group1, boot_mean, R = 10000)
+  boot2 <- boot(group2, boot_mean, R = 10000)
+
+  # Confidence intervals > do they overlap? Are they meaningful?
+  boot.ci(boot1, type = "perc")
+  boot.ci(boot2, type = "perc")
+}
+
+# Apply function to examine CIs
+boot_data(raute_total) # considering all
+boot_data(raute_total[(raute_total$gottra_combo != 'S-S'),]) # because high relatedness in this clan > does it drive the results?
+
+## STEP 2: MODELLING GROUP DIFFERENCES (BETWEEN VS. WITHIN CLAN)
+
+# perform bayesian model 
+raute_total$gottra_check <- relevel(factor(raute_total$gottra_check), ref = "same") #so that 'same' gottra is the reference
+blm_gottra <- brm(kinship ~ gottra_check + (1 | pair), 
+           data = raute_total,
+           family = gaussian(),
+           prior = c(prior(normal(0, 0.1), class = "b"),
+                     prior(normal(0, 0.1), class = "Intercept")),
+           chains = 4, iter = 2000, cores = 4,
+           backend = "cmdstanr")
+summary(blm_gottra)
+
+# Plot the model 
+plot(blm_gottra)
+
+# Save the conditional effects
+cond_effects_blm <- conditional_effects(blm_gottra, effects = "gottra_check")
+cond_data_blm <- cond_effects_blm[[1]]  
+
+# Supplementary Figure 2a
+png("/Users/inezd/Documents/Science/PhD/Chapter_3/Plots/brms_gottra.png", width = 800, height = 800)
+ggplot(cond_data_blm, aes(x = gottra_check, y = estimate__, ymin = lower__, ymax = upper__, group = gottra_check)) +
+  geom_pointrange(linewidth = 1) +  # Plot the point estimate with confidence intervals
+  geom_point(aes(color = gottra_check),size = 5, alpha = 0.6) +  # Customize point appearance
+  theme_classic() +
+  scale_color_manual(values=c("#ffa635", "#839ffe")) +
+  theme(text = element_text(size = 30),
+        legend.position = "none" ) +
+  labs(y = "Kinship coefficient", x = "Clan membership", color = 'Clan membership') +
+  scale_y_continuous(limits = c(0.138,0.146), breaks = seq(0.138,0.146, by = 0.002))
+dev.off()
+
+# Again, there is higher relatedness within the S-S clan > what if we ignore these? Do the patterns hold?
+blm_gottra_S <- brm(kinship ~ gottra_check + (1 | pair),
+            data = raute_total[!(raute_total$gottra_combo == 'S-S'),],
+            family = Beta(),
+            prior = c(prior(normal(0, 0.15), class = "b"),
+                      prior(normal(0.15, 0.1), class = "Intercept")),
+            chains = 4, iter = 5000, cores = 4,
+            backend = "cmdstanr",
+            control = list(adapt_delta = 0.99))
+summary(blm_gottra_S)
+
+# Plot model
+plot(blm_gottra_S)
+
+# Save conditional effects
+cond_effects_blm3 <- conditional_effects(blm_gottra_S, effects = "gottra_check")
+cond_data_blm3 <- cond_effects_blm3[[1]]  
+
+# Supplementary Figure 2b
+png("/Users/inezd/Documents/Science/PhD/Chapter_3/Plots/brms_gottra_checked.png", width = 800, height = 800)
+ggplot(cond_data_blm3, aes(x = gottra_check, y = estimate__, ymin = lower__, ymax = upper__, group = gottra_check)) +
+  geom_pointrange(linewidth = 1) +  # Plot the point estimate with confidence intervals
+  geom_point(aes(color = gottra_check),size = 5, alpha = 0.6) +  # Customize point appearance
+  theme_classic() +
+  scale_color_manual(values=c("#ffa635", "#839ffe")) +
+  theme(text = element_text(size = 30),
+        legend.position = "none" ) +
+  labs(y = "Kinship coefficient", x = "Clan membership", color = 'Clan membership') +
+  scale_y_continuous(limits = c(0.138,0.146), breaks = seq(0.138,0.146, by = 0.002))
+dev.off()
+
+
+##################################### SIMULATING INBREEDING #####################################
+
+## STEP 1: ADD INBREEDING COEFFICIENTS
+
+# Create merged variable of clan: we want to 'original clan' for those who haven't gotten a new clan upon marriage (ie. men and children)
+# For women we take the clan they married into
 raute_list <- raute_list %>%
   mutate(gottra_marry = if_else(is.na(gottra_married), gottra_born, gottra_married)) %>%
-  left_join(homozygosity %>% select(new_IID = IID, F, FROH), by = 'new_IID')
+  left_join(homozygosity %>% select(new_IID = IID, F, FROH), by = 'new_IID') # Add inbreeding coefficients
 
-raute_list$gottra_marry <- raute_list$gottra_married
-raute_list$gottra_marry[is.na(raute_list$gottra_marry)] <- raute_list$gottra_born[is.na(raute_list$gottra_marry)]
-names(raute_list)[7] <- 'IID'
-raute_list <- merge(raute_list, homozygosity[,c(2,6,7)], all.x=T)
-
-
-
-### EXAMINE INBREEDING
-
-# Examine relatedness, EOIC and the second EOIC in spouses file
-observed_eoic <- mean(spouses$eoic)
-observed_eoic2 <- mean(spouses$eoic2)
-observed_r <- mean(spouses$kinship)
-
-
-### SIMULATIONS
+## STEP 2: EXAMINE INBREEDING THROUGH "SIMULATION"
 
 # Function to calculate the expected inbreeding coefficient for offspring
 expected_inbreeding_offspring <- function(father, mother, kinship) {
   return(0.5 * (father + mother) + 0.5 * kinship)
 }
 
-# Function to calculate the expected inbreeding coefficient for offspring, but altered
-expected_inbreeding_offspring2 <- function(father, mother, kinship) {
-  return((father + mother)/2 + (kinship*(1+father)*(1+mother))/2)
-}
-
-
 # Perform simulations
-inbreeding_scenarios <-function(raute_list, population_relatedness){
+inbreeding_scenarios <-function(raute_list, raute_total){
   
   # Number of simulations
   num_simulations = 1000
   
-  # Three simulation scenarios
+  # Four simulation scenarios
   simulated_random_inbreeding_avgs <- data.frame(eoic_r = as.numeric(), eoic2_r = as.numeric(), rel_r = as.numeric(), n_r = as.numeric())
   simulated_exogamy_inbreeding_avgs <- data.frame(eoic_ex = as.numeric(), eoic2_ex = as.numeric(), rel_ex = as.numeric(),n_ex = as.numeric())
   simulated_endogamy_inbreeding_avgs <- data.frame(eoic_en = as.numeric(), eoic2_en = as.numeric(), rel_en = as.numeric(), n_en = as.numeric())
@@ -78,7 +174,7 @@ inbreeding_scenarios <-function(raute_list, population_relatedness){
     general_dataset <- expand_grid(ManID = males$ManID, WomanID = females$WomanID) %>%
       mutate(ManID = as.character(ManID), WomanID = as.character(WomanID),
              pair = paste(pmin(ManID, WomanID), pmax(ManID, WomanID), sep = '-')) %>%
-      left_join(population_relatedness %>% select(pair, kinship), by = 'pair') %>%
+      left_join(raute_total %>% select(pair, kinship), by = 'pair') %>%
       left_join(raute_list %>% select(ManID = new_IID, F, FROH), by = 'ManID') %>%
       left_join(raute_list %>% select(WomanID = new_IID, F, FROH), by = 'WomanID') %>%
       drop_na(kinship, FROH.x, FROH.y)
@@ -89,7 +185,7 @@ inbreeding_scenarios <-function(raute_list, population_relatedness){
     
     print("Simulation 1: start")
     
-    #Sample 11 couples
+    # Sample 11 couples
     nrow(general_dataset) # 1088 couples
     simulated_random_couples <- sample_n(general_dataset, 11)
     
@@ -262,7 +358,7 @@ inbreeding_scenarios <-function(raute_list, population_relatedness){
 }
 
 # Apply the function
-check <- inbreeding_scenarios(raute_list, population_relatedness)
+check <- inbreeding_scenarios(raute_list, raute_total)
 sim_results <- check %>%
   pivot_longer(cols = everything(), names_to = "Sim", values_to = "Coef") %>%
   mutate(
@@ -290,17 +386,13 @@ line_data <- data.frame(
 # Make subset
 EOIC_results <- sim_results[(sim_results$Measure == 'EOIC'),]
 
-# Plot
+# MANUSCRIPT FIGURE 3
 png("/Users/inezd/Documents/Science/Raute/Chapter_3/Plots/boxplot_inbreeding.png", width = 1400, height = 1000)
 boxplot_inbreeding <- ggplot(EOIC_results, aes(x = Scenario, y = Coef)) +
   geom_boxplot(aes(fill= Scenario), alpha = 0.6) +
-  #geom_hline(data = line_data, aes(yintercept = y_value), 
-  #           linetype = "dashed", color = "#b77fff", size = 1) +
   scale_fill_manual(values=c("#ffda83", "#ffa635", "#839ffe", "#ff839f")) +
   labs(x = "Scenario", y = "EOIC") +
   theme_classic() +
-  #scale_x_discrete(labels=c("Endogamy" = "Endo", "Exogamy" = "Exo",
-  #                          "Kin rule" = "Kin", 'Random' = "Ran")) +
   theme(text = element_text(size = 40),
         legend.position = "none")
 boxplot_inbreeding
@@ -309,10 +401,8 @@ dev.off()
 # Are there significant differences between the scenarios?
 hist(sim_results$Coef[(sim_results$Measure == 'EOIC')]) # Data is normally distributed
 aov_result <- aov(Coef ~ Scenario, data = sim_results[(sim_results$Measure == 'EOIC'),])
-summary(aov_result)
-TukeyHSD(aov_result)
-
-
+summary(aov_result) # suggests yes
+TukeyHSD(aov_result) # suggests differences between all four conditions
 
 # Check if we can predict EOIC
 model_sim <- brm(Coef ~ Scenario, 
@@ -320,7 +410,6 @@ model_sim <- brm(Coef ~ Scenario,
              family = gaussian(),
              prior = c(set_prior("normal(0, 1)", class = "b")), 
              chains = 4, iter = 4000, warmup = 1000, cores = 4)
-
 
 # Check normality of residuals
 pp_check(model_sim, type = "dens_overlay") # normally distributed
@@ -331,13 +420,15 @@ qqnorm(res) # follow a linear pattern
 pp_check(model_sim, type = "scatter_avg") # more or less equal variance across categories 
 
 # Check sample size
-summary(sim_results$Scenario) # 1000 per scenario, seems fine
+summary(sim_results$Scenario) # 1000 per scenario
 
 # Outcome of model
 summary(model_sim) # Rhat values are 1
 plot(model_sim)
 cond_model_sim <- conditional_effects(model_sim, effects = "Scenario")
-cond_model_sim <- cond_model_sim[[1]]  #
+cond_model_sim <- cond_model_sim[[1]]  
+
+# Supplementary Figure 3
 png("/Users/inezd/Documents/Science/Raute/Chapter_3/Plots/model_simulation.png", width = 800, height = 800)
 ggplot(cond_model_sim, aes(x = Scenario, y = estimate__, ymin = lower__, ymax = upper__, group = Scenario)) +
   geom_pointrange(linewidth = 1) +  # Plot the point estimate with confidence intervals
